@@ -80,31 +80,36 @@ export async function load(source, exports = undefined) {
  * @returns {number}
  */
 function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
-    const script = worker_script();
-
-    load_module_workers_polyfill();
-    const options = {
-        name: name_ptr === 0 ? undefined : import_zig_string(name_ptr, name_len),
-        type: "module"
-    };
-
-    const worker = new Worker(script, options);
-    worker.postMessage([global.module, global.memory, f, args, futex_ptr]);
+    try {
+        const script = worker_script();
     
-    /**
-     * @type {number}
-     */
-    let worker_idx;
-    if (global.next_idx === null) {
-        worker_idx = global.workers.push(worker) - 1;
-    } else {
-        const tmp = global.next_idx;
-        global.next_idx = global.workers[tmp];
-        global.workers[tmp] = worker;
-        worker_idx = tmp;
+        load_module_workers_polyfill();
+        const options = {
+            name: name_ptr === 0 ? undefined : import_zig_string(name_ptr, name_len),
+            type: "module"
+        };
+    
+        const worker = new Worker(script, options);
+        worker.postMessage([global.module, global.memory, f, args, futex_ptr]);
+        
+        /**
+         * @type {number}
+         */
+        let worker_idx;
+        if (global.next_idx === null) {
+            worker_idx = global.workers.push(worker) - 1;
+        } else {
+            const tmp = global.next_idx;
+            global.next_idx = global.workers[tmp];
+            global.workers[tmp] = worker;
+            worker_idx = tmp;
+        }
+    
+        return worker_idx
+    } catch (e) {
+        console.error(e);
+        throw e;
     }
-
-    return worker_idx
 }
 
 /**

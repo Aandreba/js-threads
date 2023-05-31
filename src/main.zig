@@ -11,6 +11,8 @@ comptime {
         @compileError("JS threads are only supported on WASM targets");
     } else if (!rc.atomic_arc) {
         @compileError("atomic support is not enabled");
+    } else if (!std.Target.wasm.featureSetHasAll(builtin.cpu.features, .{ .bulk_memory, .mutable_globals })) {
+        @compileError("shared memory is not enabled");
     }
 
     // TODO check for bulk-memory and shared-memory features
@@ -62,7 +64,7 @@ pub const Thread = struct {
         args_ptr.* = args;
         errdefer alloc.destroy(args_ptr);
 
-        var futex = try ThreadLock.init(AtomicU32.init(0));
+        var futex = try ThreadLock.init(alloc, AtomicU32.init(0));
         errdefer futex.release();
 
         _ = futex.retain();
@@ -118,7 +120,7 @@ pub const Thread = struct {
 
     fn deinit(self: Thread) void {
         release_worker(self.idx);
-        self.lock.release(alloc);
+        self.lock.release();
     }
 };
 
@@ -130,5 +132,11 @@ export fn wasm_thread_entry_point(f: *const fn (*anyopaque, *AtomicU32) void, ar
     (f)(args, futex_ptr);
 }
 
-extern fn spawn_worker(name_ptr: ?[*]const u8, name_len: usize, f: *const fn (*anyopaque) void, args: *anyopaque, futex_ptr: *AtomicU32) u32;
+extern fn spawn_worker(
+    name_ptr: ?[*]const u8,
+    name_len: usize,
+    f: *const fn (*anyopaque, *AtomicU32) void,
+    args: *anyopaque,
+    futex_ptr: *AtomicU32,
+) u32;
 extern fn release_worker(idx: u32) void;

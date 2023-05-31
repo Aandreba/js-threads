@@ -9,7 +9,7 @@ pub fn build(b: *std.build.Builder) void {
     const optimize = b.standardOptimizeOption(.{});
 
     var target = default_target(.wasm32, .freestanding);
-    target.cpu.features = std.Target.wasm.featureSet(&.{.atomics});
+    target.cpu.features = std.Target.wasm.featureSet(&.{ .atomics, .bulk_memory, .mutable_globals });
 
     const docs = b.addStaticLibrary(.{
         .name = "js-threads",

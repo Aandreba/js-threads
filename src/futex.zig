@@ -29,7 +29,7 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
     }
 
     const timeout = if (std.math.cast(i64, timeout_ns)) |ns| ns else std.math.maxInt(i64);
-    switch (memory_atomic_wait32(@constCast(&ptr.value), expect, timeout)) {
+    switch (memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, expect), timeout)) {
         0, 1 => return,
         2 => return error.Timeout,
         else => unreachable,
@@ -45,7 +45,7 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
 pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
     @setCold(true);
-    _ = memory_atomic_wait32(@constCast(&ptr.value), expect, -1);
+    _ = memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, expect), -1);
 }
 
 /// Unblocks at most `max_waiters` callers blocked in a `wait()` call on `ptr`.
@@ -57,10 +57,10 @@ pub fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         return;
     }
 
-    _ = memory_atomic_notify(@constCast(&ptr.value), max_waiters);
+    _ = memory_atomic_notify(@ptrCast(*i32, @constCast(&ptr.value)), max_waiters);
 }
 
-inline fn memory_atomic_wait32(ptr: *u32, exp: u32, timeout: i64) u32 {
+inline fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32 {
     return asm volatile (
         \\local.get %[ptr]
         \\local.get %[exp]
@@ -74,7 +74,7 @@ inline fn memory_atomic_wait32(ptr: *u32, exp: u32, timeout: i64) u32 {
     );
 }
 
-inline fn memory_atomic_wait64(ptr: *u64, exp: u64, timeout: i64) u32 {
+inline fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32 {
     return asm volatile (
         \\local.get %[ptr]
         \\local.get %[exp]
@@ -88,12 +88,12 @@ inline fn memory_atomic_wait64(ptr: *u64, exp: u64, timeout: i64) u32 {
     );
 }
 
-inline fn memory_atomic_notify(ptr: *u32, max_waits: u32) u32 {
+inline fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32 {
     return asm volatile (
         \\local.get %[ptr]
         \\local.get %[wait]
         \\memory.atomic.notify %[ret]
-        : [ret] "=r" (-> u32),
+        : [ret] "=r" (-> i32),
         : [ptr] "r" (ptr),
           [wait] "r" (max_waits),
         : "memory"

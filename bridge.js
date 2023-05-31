@@ -6,7 +6,7 @@ import init, { wasm_thread_entry_point } from "WASM_BINDGEN_SHIM_URL";
 // Once we've got it, initialize it all with the "wasm_bindgen" global we imported via
 // "importScripts".
 self.onmessage = event => {
-    let [module, memory, f, args] = event.data;
+    let [module, memory, f, args, futex_ptr] = event.data;
 
     init(module, memory).catch(err => {
         console.log(err);
@@ -21,7 +21,7 @@ self.onmessage = event => {
     }).then(() => {
         // Enter rust code by calling entry point defined in "lib.rs".
         // This executes closure defined by work context.
-        wasm_thread_entry_point(f, args);
+        wasm_thread_entry_point(f, args, futex_ptr);
 
         // Once done, terminate web worker
         close();
@@ -29,15 +29,27 @@ self.onmessage = event => {
 };
 `;
 
+/**
+ * @typedef Globals
+ * @type {Object}
+ * @property {WebAssembly.Instance} instance
+ * @property {WebAssembly.Memory} memory
+ * @property {(number | null)} next_idx
+ * @property {Array.<(Worker | number | null)>} workers
+ */
+
+/**
+ * @type {Globals}
+ */
 let global;
 
 /**
  * 
- * @param {string} url 
+ * @param {(Response | Promise<Response>)} source 
  */
-export async function load(url) {
-    const env = { spawn_worker };
-    const wasm = await WebAssembly.instantiateStreaming(fetch(url), { env });
+export async function load(source) {
+    const env = { spawn_worker, release_worker };
+    const wasm = await WebAssembly.instantiateStreaming(source, { env });
 }
 
 /**
@@ -46,8 +58,10 @@ export async function load(url) {
  * @param {number} name_len 
  * @param {number} f 
  * @param {number} args 
+ * @param {number} futex_ptr
+ * @returns {number}
  */
-function spawn_worker(name_ptr, name_len, f, args) {
+function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
     const script = worker_script();
 
     load_module_workers_polyfill();
@@ -57,7 +71,29 @@ function spawn_worker(name_ptr, name_len, f, args) {
     };
 
     const worker = new Worker(script, options);
-    worker.postMessage([global.module, global.memory,]);
+    worker.postMessage([global.module, global.memory, f, args, futex_ptr]);
+    
+    /**
+     * @type {number}
+     */
+    let worker_idx;
+    if (global.next_idx === null) {
+        worker_idx = global.workers.push(worker) - 1;
+    } else {
+        const tmp = global.next_idx;
+        global.next_idx = global.workers[tmp];
+        global.workers[tmp] = worker;
+        worker_idx = tmp;
+    }
+
+    return worker_idx
+}
+
+/**
+ * @param {number} idx 
+ */
+function release_worker (idx) {
+    // TODO
 }
 
 /**

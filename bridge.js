@@ -46,17 +46,28 @@ let global;
 
 /**
  * 
- * @param {(Response | Promise<Response>)} source 
+ * @param {(BufferSource | Uint8Array |  Response | Promise<Response>)} source 
+ * @param {(WebAssembly.ModuleImports | undefined)} exports
+ * @returns {WebAssembly.WebAssemblyInstantiatedSource}
  */
-export async function load(source) {
-    const env = { spawn_worker, release_worker };
-    const wasm = await WebAssembly.instantiateStreaming(source, { env });
+export async function load(source, exports = undefined) {
+    const env = { spawn_worker, release_worker, ...exports };
+    
+    var wasm;
+    if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
+        wasm = await WebAssembly.instantiate(source, { env })
+    } else {
+        wasm = await WebAssembly.instantiateStreaming(source, { env });
+    }
 
-    global.instance = wasm.instance;
-    global.module = wasm.module;
-    global.memory = wasm.instance.exports.memory;
-    global.next_idx = null
-    global.workers = []
+    global = {
+        instance: wasm.instance,
+        module: wasm.module,
+        memory: wasm.instance.exports.memory,
+        next_idx: null,
+        workers: []
+    }
+    return wasm
 }
 
 /**

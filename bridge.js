@@ -160,7 +160,7 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
  * @param {number} len Length of the string (in bytes)
  * @returns {string}
  */
-function import_zig_string(ptr, len) {
+export function import_zig_string(ptr, len) {
     const buf = new Uint8Array(global.memory.buffer).subarray(ptr, ptr + len);
     return TEXT_DECODER.decode(buf)
 }

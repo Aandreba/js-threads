@@ -1,16 +1,23 @@
 const std = @import("std");
 const Builder = std.build.Builder;
+const Target = std.Target;
 
 pub fn build(b: *std.build.Builder) void {
-    _ = b.addModule("zigrc", std.build.CreateModuleOptions{
-        .source_file = .{ .path = "libs/zigrc.zig" },
-    });
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
+    const optimize = b.standardOptimizeOption(.{});
+
+    var target = default_target(.wasm32, .freestanding);
+    target.cpu.features = std.Target.wasm.featureSet(&.{.atomics});
 
     const docs = b.addStaticLibrary(.{
         .name = "js-threads",
-        .file_root_source = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = std.zig.CrossTarget.fromTarget(target),
+        .optimize = optimize,
     });
-    docs.emit_docs = true;
+    docs.emit_docs = .emit;
     const docs_step = b.step("docs", "Generate documentation");
     docs_step.dependOn(&docs.step);
 
@@ -19,4 +26,14 @@ pub fn build(b: *std.build.Builder) void {
     });
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
+}
+
+fn default_target(arch: Target.Cpu.Arch, os_tag: Target.Os.Tag) Target {
+    const os = os_tag.defaultVersionRange(arch);
+    return Target{
+        .cpu = Target.Cpu.baseline(arch),
+        .abi = Target.Abi.default(arch, os),
+        .os = os,
+        .ofmt = Target.ObjectFormat.default(os_tag, arch),
+    };
 }

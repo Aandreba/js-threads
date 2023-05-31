@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const rc = @import("zigrc");
+const rc = @import("libs/zigrc.zig");
 var alloc = std.heap.page_allocator;
 
 const AtomicU32 = std.atomic.Atomic(u32);
@@ -34,7 +34,7 @@ pub const Thread = struct {
     pub const YieldError = std.Thread.YieldError;
 
     // TODO error handling
-    fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) SpawnError!Thread {
+    pub fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) SpawnError!Thread {
         _ = config;
         const Args = @TypeOf(args);
 

@@ -33,6 +33,7 @@ self.onmessage = event => {
  * @typedef Globals
  * @type {Object}
  * @property {WebAssembly.Instance} instance
+ * @property {WebAssembly.Module} module
  * @property {WebAssembly.Memory} memory
  * @property {(number | null)} next_idx
  * @property {Array.<(Worker | number | null)>} workers
@@ -50,6 +51,12 @@ let global;
 export async function load(source) {
     const env = { spawn_worker, release_worker };
     const wasm = await WebAssembly.instantiateStreaming(source, { env });
+
+    global.instance = wasm.instance;
+    global.module = wasm.module;
+    global.memory = wasm.instance.exports.memory;
+    global.next_idx = null
+    global.workers = []
 }
 
 /**
@@ -93,7 +100,10 @@ function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
  * @param {number} idx 
  */
 function release_worker (idx) {
-    // TODO
+    const worker = global.workers[idx];
+    worker = global.next_idx;
+    global.next_idx = idx;
+    // worker.terminate();
 }
 
 /**

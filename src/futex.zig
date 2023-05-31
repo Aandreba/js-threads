@@ -57,7 +57,7 @@ pub fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         return;
     }
 
-    _ = memory_atomic_notify(@ptrCast(*i32, @constCast(&ptr.value)), max_waiters);
+    _ = memory_atomic_notify(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, max_waiters));
 }
 
 inline fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32 {

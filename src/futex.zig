@@ -29,7 +29,7 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
     }
 
     const timeout = if (std.math.cast(i64, timeout_ns)) |ns| ns else std.math.maxInt(i64);
-    switch (memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, expect), timeout)) {
+    switch (Impl.memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @intCast(i32, expect), timeout)) {
         0, 1 => return,
         2 => return error.Timeout,
         else => unreachable,
@@ -45,7 +45,7 @@ pub fn timedWait(ptr: *const Atomic(u32), expect: u32, timeout_ns: u64) error{Ti
 /// and totally ordered (sequentially consistent) with respect to other wait()/wake() calls on the same `ptr`.
 pub fn wait(ptr: *const Atomic(u32), expect: u32) void {
     @setCold(true);
-    _ = memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, expect), -1);
+    _ = Impl.memory_atomic_wait32(@ptrCast(*i32, @constCast(&ptr.value)), @intCast(i32, expect), -1);
 }
 
 /// Unblocks at most `max_waiters` callers blocked in a `wait()` call on `ptr`.
@@ -57,45 +57,56 @@ pub fn wake(ptr: *const Atomic(u32), max_waiters: u32) void {
         return;
     }
 
-    _ = memory_atomic_notify(@ptrCast(*i32, @constCast(&ptr.value)), @truncate(i32, max_waiters));
+    _ = Impl.memory_atomic_notify(@ptrCast(*i32, @constCast(&ptr.value)), @intCast(i32, max_waiters));
 }
 
-inline fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32 {
-    return asm volatile (
-        \\local.get %[ptr]
-        \\local.get %[exp]
-        \\local.get %[timeout]
-        \\memory.atomic.wait32 %[ret]
-        : [ret] "=r" (-> u32),
-        : [ptr] "r" (ptr),
-          [exp] "r" (exp),
-          [timeout] "r" (timeout),
-        : "memory"
-    );
-}
+// Still working on Wasm implementation
+const Impl = JsImpl;
 
-inline fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32 {
-    return asm volatile (
-        \\local.get %[ptr]
-        \\local.get %[exp]
-        \\local.get %[timeout]
-        \\memory.atomic.wait64 %[ret]
-        : [ret] "=r" (-> u32),
-        : [ptr] "r" (ptr),
-          [exp] "r" (exp),
-          [timeout] "r" (timeout),
-        : "memory"
-    );
-}
+const JsImpl = struct {
+    extern fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32;
+    extern fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32;
+    extern fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32;
+};
 
-inline fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32 {
-    return asm volatile (
-        \\local.get %[ptr]
-        \\local.get %[wait]
-        \\memory.atomic.notify %[ret]
-        : [ret] "=r" (-> i32),
-        : [ptr] "r" (ptr),
-          [wait] "r" (max_waits),
-        : "memory"
-    );
-}
+const WasmImpl = struct {
+    inline fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32 {
+        return asm volatile (
+            \\local.get %[ptr]
+            \\local.get %[exp]
+            \\local.get %[timeout]
+            \\memory.atomic.wait32 %[ret]
+            : [ret] "=r" (-> i32),
+            : [ptr] "r" (ptr),
+              [exp] "r" (exp),
+              [timeout] "r" (timeout),
+            : "memory"
+        );
+    }
+
+    inline fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32 {
+        return asm volatile (
+            \\local.get %[ptr]
+            \\local.get %[exp]
+            \\local.get %[timeout]
+            \\memory.atomic.wait64 %[ret]
+            : [ret] "=r" (-> i32),
+            : [ptr] "r" (ptr),
+              [exp] "r" (exp),
+              [timeout] "r" (timeout),
+            : "memory"
+        );
+    }
+
+    inline fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32 {
+        return asm volatile (
+            \\local.get %[ptr]
+            \\local.get %[wait]
+            \\memory.atomic.notify %[ret]
+            : [ret] "=r" (-> i32),
+            : [ptr] "r" (ptr),
+              [wait] "r" (max_waits),
+            : "memory"
+        );
+    }
+};

@@ -1,4 +1,16 @@
+/**
+ * @typedef Globals
+ * @type {Object}
+ * @property {WebAssembly.Instance} instance
+ * @property {WebAssembly.Module} module
+ * @property {WebAssembly.Memory} memory
+ * @property {(number | null)} next_idx
+ * @property {Array.<(Worker | number | null)>} workers
+ * @property {string} lib
+ */
+
 const WORKER_SCRIPT = String.raw`
+import { env as externEnv } from "ZIG_THREAD_PARENT_SHIM_URL";
 // synchronously, using the browser, import wasm_bindgen shim JS scripts
 import init, { wasm_thread_entry_point } from "WASM_BINDGEN_SHIM_URL";
 
@@ -6,9 +18,9 @@ import init, { wasm_thread_entry_point } from "WASM_BINDGEN_SHIM_URL";
 // Once we've got it, initialize it all with the "wasm_bindgen" global we imported via
 // "importScripts".
 self.onmessage = event => {
-    let [module, memory, f, args, futex_ptr] = event.data;
+    let [module, memory, f, args, futex_ptr, lib] = event.data;
 
-    init(module, memory).catch(err => {
+    init(module, memory, externEnv, lib).catch(err => {
         console.log(err);
 
         // Propagate to main "onerror":
@@ -29,31 +41,36 @@ self.onmessage = event => {
 };
 `;
 
-/**
- * @typedef Globals
- * @type {Object}
- * @property {WebAssembly.Instance} instance
- * @property {WebAssembly.Module} module
- * @property {WebAssembly.Memory} memory
- * @property {(number | null)} next_idx
- * @property {Array.<(Worker | number | null)>} workers
- */
+const globalEnv = { spawn_worker, release_worker,memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify };
+
 
 /**
+ * Variable with the current Wasm context
  * @type {Globals}
  */
 let global;
 
 /**
+ * Entry point for Wasm threads
+ * @param {number} f 
+ * @param {number} args 
+ * @param {number} futex_ptr 
+ */
+export function wasm_thread_entry_point(f, args, futex_ptr) {
+    (global.instance.exports.wasm_thread_entry_point)(f, args, futex_ptr);
+}
+
+/**
  * 
  * @param {(BufferSource | Uint8Array |  Response | Promise<Response>)} source 
- * @param {(WebAssembly.ModuleImports | undefined)} exports
+ * @param {Record<string, WebAssembly.ExportValue>} exports
+ * @param {Record<string, WebAssembly.ExportValue>} lib Path where the WASM exports are to be taken from when spawning workers 
  * @returns {WebAssembly.WebAssemblyInstantiatedSource}
  */
-export async function load(source, exports = undefined) {
-    const env = { spawn_worker, release_worker, ...exports };
-    
-    var wasm;
+export async function load(source, exports, lib) {
+    const env = { ...exports, ...globalEnv };
+
+    let wasm;
     if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
         wasm = await WebAssembly.instantiate(source, { env })
     } else {
@@ -65,9 +82,36 @@ export async function load(source, exports = undefined) {
         module: wasm.module,
         memory: wasm.instance.exports.memory,
         next_idx: null,
-        workers: []
+        workers: [],
+        lib
     }
     return wasm
+}
+
+/**
+* If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+* for everything else, calls `WebAssembly.instantiate` directly.
+*
+* @param {WebAssembly.Module} module
+* @param {WebAssembly.Memory} memory
+* @param {Record<string, WebAssembly.ExportValue>} exports
+* @param {string} lib
+* @returns {Promise<Globals>}
+*/
+export default async function init(module, memory, exports, lib) {
+    if (global !== undefined) return global;
+    const env = { ...exports, ...globalEnv };
+
+    global = {
+        instance: await WebAssembly.instantiate(module, { env }),
+        next_idx: null,
+        workers: [],
+        module,
+        memory,
+        lib
+    };
+
+    return global;
 }
 
 /**
@@ -90,7 +134,7 @@ function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
         };
     
         const worker = new Worker(script, options);
-        worker.postMessage([global.module, global.memory, f, args, futex_ptr]);
+        worker.postMessage([global.module, global.memory, f, args, futex_ptr, global.lib]);
         
         /**
          * @type {number}
@@ -122,6 +166,67 @@ function release_worker (idx) {
     // worker.terminate();
 }
 
+/*
+extern fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32;
+extern fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32;
+extern fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32;
+*/
+
+/**
+ * 
+ * @param {number} ptr 
+ * @param {bigint} exp 
+ * @param {bigint} timeout 
+ * @returns {number}
+ */
+function memory_atomic_wait64(ptr, exp, timeout) {
+    const offset = ptr / BigInt64Array.BYTES_PER_ELEMENT;
+    const mem = new Int32Array(global.memory.buffer);
+
+    const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
+    switch(Atomics.wait(mem, offset, exp, wait)) {
+        case "ok":
+            return 0
+        case "not-equal":
+            return 1
+        case "timed-out":
+            return 2
+    }
+}
+
+/**
+ * 
+ * @param {number} ptr 
+ * @param {number} exp 
+ * @param {bigint} timeout 
+ * @returns {number}
+ */
+function memory_atomic_wait32(ptr, exp, timeout) {
+    const offset = ptr / Int32Array.BYTES_PER_ELEMENT;
+    const mem = new Int32Array(global.memory.buffer);
+
+    const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
+    switch(Atomics.wait(mem, offset, exp, wait)) {
+        case "ok":
+            return 0
+        case "not-equal":
+            return 1
+        case "timed-out":
+            return 2
+    }
+}
+
+/**
+ * 
+ * @param {number} ptr 
+ * @param {number} max_waits 
+ */
+function memory_atomic_notify(ptr, max_waits) {
+    const offset = ptr / Int32Array.BYTES_PER_ELEMENT;
+    const mem = new Int32Array(global.memory.buffer);
+    return Atomics.notify(mem, offset, max_waits)
+}
+
 /**
  * 
  * @type {(string | null)}
@@ -135,7 +240,7 @@ let script_url = null;
 function worker_script() {
     if (script_url === null) {
         const script = script_path();
-        const template = WORKER_SCRIPT.replace("WASM_BINDGEN_SHIM_URL", script);
+        const template = WORKER_SCRIPT.replace("ZIG_THREAD_PARENT_SHIM_URL", global.lib).replace("WASM_BINDGEN_SHIM_URL", script);
         const blob = new Blob([template]);
         script_url = URL.createObjectURL(blob.slice(undefined, undefined, "text/javascript"));
     }

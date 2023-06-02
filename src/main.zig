@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const rc = @import("libs/zigrc.zig");
 const thread_id = @import("id.zig");
 
-var alloc = std.heap.page_allocator;
+pub const thread_safe_allocator = @import("alloc.zig").thread_safe_allocator;
 
 const AtomicU32 = std.atomic.Atomic(u32);
 const ThreadLock = rc.Arc(AtomicU32);
@@ -45,7 +45,7 @@ pub const Thread = struct {
 
         const Instance = struct {
             fn entryFn(raw_arg: *anyopaque, futex_ptr: *AtomicU32) void {
-                const futex = ThreadLock{ .value = futex_ptr, .alloc = alloc };
+                const futex = ThreadLock{ .value = futex_ptr, .alloc = thread_safe_allocator };
                 defer {
                     futex_ptr.store(1, .Release);
                     Futex.wake(futex_ptr, 1);
@@ -58,16 +58,16 @@ pub const Thread = struct {
                 }
 
                 const args_ptr = @ptrCast(*Args, @alignCast(@alignOf(Args), raw_arg));
-                defer alloc.destroy(args_ptr);
+                defer thread_safe_allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
             }
         };
 
-        const args_ptr = try alloc.create(Args);
+        const args_ptr = try thread_safe_allocator.create(Args);
         args_ptr.* = args;
-        errdefer alloc.destroy(args_ptr);
+        errdefer thread_safe_allocator.destroy(args_ptr);
 
-        var futex = try ThreadLock.init(alloc, AtomicU32.init(0));
+        var futex = try ThreadLock.init(thread_safe_allocator, AtomicU32.init(0));
         errdefer futex.release();
 
         _ = futex.retain();

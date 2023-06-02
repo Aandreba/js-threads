@@ -64,10 +64,17 @@ export function wasm_thread_entry_point(f, args, futex_ptr) {
  * @param {(BufferSource | Uint8Array |  Response | Promise<Response>)} source 
  * @param {Record<string, WebAssembly.ExportValue>} exports
  * @param {Record<string, WebAssembly.ExportValue>} lib Path where the WASM exports are to be taken from when spawning workers 
+ * @param {(number | undefined)} initial Initial number of pages for Wasm memory
+ * @param {(number | undefined)} maximum Max number of pages for Wasm memory
  * @returns {WebAssembly.WebAssemblyInstantiatedSource}
  */
-export async function load(source, exports, lib) {
-    const env = { ...exports, ...globalEnv };
+export async function load(source, exports, lib, initial, maximum) {
+    const memory = new WebAssembly.Memory({
+        initial,
+        maximum,
+        shared: true
+    });
+    const env = { ...exports, ...globalEnv, memory };
 
     let wasm;
     if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
@@ -79,9 +86,9 @@ export async function load(source, exports, lib) {
     global = {
         instance: wasm.instance,
         module: wasm.module,
-        memory: wasm.instance.exports.memory,
         next_idx: null,
         workers: [],
+        memory,
         lib
     }
     return wasm
@@ -99,12 +106,13 @@ export async function load(source, exports, lib) {
 */
 export default async function init(module, memory, exports, lib) {
     if (global !== undefined) return global;
-    const env = { ...exports, ...globalEnv };
+    const env = { ...exports, ...globalEnv, memory };
+    const instance = await WebAssembly.instantiate(module, { env });
 
     global = {
-        instance: await WebAssembly.instantiate(module, { env }),
         next_idx: null,
         workers: [],
+        instance,
         module,
         memory,
         lib
@@ -159,8 +167,7 @@ function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
  * @param {number} idx 
  */
 function release_worker(idx) {
-    const worker = global.workers[idx];
-    worker = global.next_idx;
+    global.workers[idx] = global.next_idx;
     global.next_idx = idx;
     // worker.terminate();
 }

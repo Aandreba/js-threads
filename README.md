@@ -4,6 +4,10 @@
 
 ## Known issues
 
-- By default, the zig compiler may not set a high enough `max_memory` value, crashing the program unexpectedly. You can fix that by adding a manual `max_size` to your library.
+- Build option `import_memory` will have to be set to `true`, requiring you to specify both inital and maximum Wasm memory on both your build file, and when calling `load` on your Js project.
 
 - `@memcpy` panics if copying out-of-bounds pointers, even in zero-sized copies.
+    - See [this issue](https://github.com/ziglang/zig/issues/15920)
+
+- Futexes executed on the main thread will operate in busy-wait, as `Atomics.wait` panics on the main thread. In either case,
+blocking the main thread for long periods of time isn't recommended.

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 var thread_id_counter: u32 = 0;
-export fn thread_id_counter_ptr() *i32 {
+export fn thread_id_counter_ptr() *u32 {
     return &thread_id_counter;
 }
 pub extern fn thread_id() u32;

@@ -181,9 +181,9 @@ function memory_atomic_wait64(ptr, exp, timeout) {
 
     if (thread_id() === 0) {
         // Busy-wait loop
-        if (Atomics.load(mem, ptr) != exp) return 1;
+        if (Atomics.load(mem, offset) != exp) return 1;
         const start = performance.now();
-        while (Atomics.load(mem, ptr) == exp) {
+        while (Atomics.load(mem, offset) == exp) {
             if (performance.now() - start >= wait) return 2;
         }
         return 0;
@@ -216,9 +216,9 @@ function memory_atomic_wait32(ptr, exp, timeout) {
 
     if (thread_id() === 0) {
         // Busy-wait loop
-        if (Atomics.load(mem, ptr) != exp) return 1;
+        if (Atomics.load(mem, offset) != exp) return 1;
         const start = performance.now();
-        while (Atomics.load(mem, ptr) == exp) {
+        while (Atomics.load(mem, offset) == exp) {
             if (performance.now() - start >= wait) return 2;
         }
         return 0;

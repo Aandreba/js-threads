@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const Thread = @import("threads").Thread;
+const Thread = @import("root").Thread;
 
 var alloc_mutex: Thread.Mutex = .{};
 var inner_alloc = std.heap.page_allocator;

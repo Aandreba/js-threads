@@ -70,15 +70,12 @@ pub const Thread = struct {
         var futex = try ThreadLock.init(thread_safe_allocator, AtomicU32.init(0));
         errdefer futex.release();
 
-        _ = futex.retain();
-        errdefer futex.release();
-
         const idx = spawn_worker(
             null,
             0,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @ptrCast(*anyopaque, args_ptr) else undefined,
-            futex.value,
+            if (@sizeOf(Args) < 1) undefined else @ptrCast(*anyopaque, args_ptr),
+            futex.retain().value,
         );
         return Thread{ .idx = idx, .lock = futex };
     }

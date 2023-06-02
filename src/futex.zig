@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const wasm = std.Target.wasm;
+const id = @import("id.zig");
 
 const Futex = @This();
 const Atomic = std.atomic.Atomic;

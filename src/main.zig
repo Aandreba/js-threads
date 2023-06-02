@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const rc = @import("libs/zigrc.zig");
+const thread_id = @import("id.zig");
+
 var alloc = std.heap.page_allocator;
 
 const AtomicU32 = std.atomic.Atomic(u32);
@@ -14,8 +16,6 @@ comptime {
     } else if (!std.Target.wasm.featureSetHasAll(builtin.cpu.features, .{ .bulk_memory, .mutable_globals })) {
         @compileError("shared memory is not enabled");
     }
-
-    // TODO check for bulk-memory and shared-memory features
 }
 
 // This struct represents a kernel thread, and acts as a namespace for concurrency
@@ -31,7 +31,7 @@ pub const Thread = struct {
     pub const max_name_len = 0;
     pub const SetNameError = std.Thread.SetNameError;
     pub const GetNameError = std.Thread.GetNameError;
-    pub const Id = @compileError("not yet implemented");
+    pub const Id = u32;
     pub const SpawnError = std.Thread.SpawnError;
     pub const YieldError = std.Thread.YieldError;
 
@@ -95,7 +95,7 @@ pub const Thread = struct {
     /// Returns the platform ID of the callers thread.
     /// Attempts to use thread locals and avoid syscalls when possible.
     pub fn getCurrentId() Id {
-        @compileError("not yet implemented");
+        return thread_id.thread_id();
     }
 
     /// Release the obligation of the caller to call `join()` and have the thread clean up its own resources on completion.

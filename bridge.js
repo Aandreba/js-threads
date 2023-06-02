@@ -41,8 +41,7 @@ self.onmessage = event => {
 };
 `;
 
-const globalEnv = { spawn_worker, release_worker,memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify };
-
+const globalEnv = { spawn_worker, release_worker, memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify };
 
 /**
  * Variable with the current Wasm context
@@ -126,16 +125,16 @@ export default async function init(module, memory, exports, lib) {
 function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
     try {
         const script = worker_script();
-    
+
         load_module_workers_polyfill();
         const options = {
             name: name_ptr === 0 ? undefined : import_zig_string(name_ptr, name_len),
             type: "module"
         };
-    
+
         const worker = new Worker(script, options);
         worker.postMessage([global.module, global.memory, f, args, futex_ptr, global.lib]);
-        
+
         /**
          * @type {number}
          */
@@ -148,7 +147,7 @@ function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
             global.workers[tmp] = worker;
             worker_idx = tmp;
         }
-    
+
         return worker_idx
     } catch (e) {
         console.error(e);
@@ -159,7 +158,7 @@ function spawn_worker(name_ptr, name_len, f, args, futex_ptr) {
 /**
  * @param {number} idx 
  */
-function release_worker (idx) {
+function release_worker(idx) {
     const worker = global.workers[idx];
     worker = global.next_idx;
     global.next_idx = idx;
@@ -184,7 +183,7 @@ function memory_atomic_wait64(ptr, exp, timeout) {
     const mem = new Int32Array(global.memory.buffer);
 
     const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
-    switch(Atomics.wait(mem, offset, exp, wait)) {
+    switch (Atomics.wait(mem, offset, exp, wait)) {
         case "ok":
             return 0
         case "not-equal":
@@ -206,7 +205,7 @@ function memory_atomic_wait32(ptr, exp, timeout) {
     const mem = new Int32Array(global.memory.buffer);
 
     const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
-    switch(Atomics.wait(mem, offset, exp, wait)) {
+    switch (Atomics.wait(mem, offset, exp, wait)) {
         case "ok":
             return 0
         case "not-equal":
@@ -225,6 +224,15 @@ function memory_atomic_notify(ptr, max_waits) {
     const offset = ptr / Int32Array.BYTES_PER_ELEMENT;
     const mem = new Int32Array(global.memory.buffer);
     return Atomics.notify(mem, offset, max_waits)
+}
+
+/**
+ * @returns {number}
+ */
+function thread_id() {
+    const ptr = global.instance.exports.thread_id_counter_ptr.value;
+    const offset = ptr / Uint32Array.BYTES_PER_ELEMENT;
+    return Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
 }
 
 /**

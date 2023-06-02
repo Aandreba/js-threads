@@ -251,6 +251,7 @@ function thread_id() {
     if (thread_id_result === null) {
         const ptr = global.instance.exports.thread_id_counter_ptr.value;
         const offset = ptr / Uint32Array.BYTES_PER_ELEMENT;
+        console.log((new Uint32Array(global.memory.buffer)).subarray(offset));
         thread_id_result = Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
     };
     return thread_id_result

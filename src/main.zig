@@ -37,8 +37,11 @@ pub const Thread = struct {
 
     // TODO error handling
     pub fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) SpawnError!Thread {
-        _ = config;
         const Args = @TypeOf(args);
+        // Stack size isn't available as Worker option
+        _ = config;
+        // Ensure main "worker" ends up with id 0.
+        _ = thread_id.thread_id();
 
         const Instance = struct {
             fn entryFn(raw_arg: *anyopaque, futex_ptr: *AtomicU32) void {

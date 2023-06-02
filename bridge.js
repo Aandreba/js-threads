@@ -41,7 +41,7 @@ self.onmessage = event => {
 };
 `;
 
-const globalEnv = { spawn_worker, release_worker, memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify };
+const globalEnv = { spawn_worker, release_worker, memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify, thread_id };
 
 /**
  * Variable with the current Wasm context
@@ -165,12 +165,6 @@ function release_worker(idx) {
     // worker.terminate();
 }
 
-/*
-extern fn memory_atomic_wait32(ptr: *i32, exp: i32, timeout: i64) i32;
-extern fn memory_atomic_wait64(ptr: *i64, exp: i64, timeout: i64) i32;
-extern fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32;
-*/
-
 /**
  * 
  * @param {number} ptr 
@@ -179,17 +173,30 @@ extern fn memory_atomic_notify(ptr: *i32, max_waits: i32) i32;
  * @returns {number}
  */
 function memory_atomic_wait64(ptr, exp, timeout) {
+    const mem = new BigInt64Array(global.memory.buffer);
     const offset = ptr / BigInt64Array.BYTES_PER_ELEMENT;
-    const mem = new Int32Array(global.memory.buffer);
 
-    const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
-    switch (Atomics.wait(mem, offset, exp, wait)) {
-        case "ok":
-            return 0
-        case "not-equal":
-            return 1
-        case "timed-out":
-            return 2
+    const millis = timeout / 1000000n;
+    const wait = millis <= Number.MAX_SAFE_INTEGER ? Number(millis) : Infinity;
+
+    if (thread_id() === 0) {
+        // Busy-wait loop
+        if (Atomics.load(mem, ptr) != exp) return 1;
+        const start = performance.now();
+        while (Atomics.load(mem, ptr) == exp) {
+            if (performance.now() - start >= wait) return 2;
+        }
+        return 0;
+    } else {
+        // Atomic wait
+        switch (Atomics.wait(mem, offset, exp, wait)) {
+            case "ok":
+                return 0
+            case "not-equal":
+                return 1
+            case "timed-out":
+                return 2
+        }
     }
 }
 
@@ -204,14 +211,27 @@ function memory_atomic_wait32(ptr, exp, timeout) {
     const offset = ptr / Int32Array.BYTES_PER_ELEMENT;
     const mem = new Int32Array(global.memory.buffer);
 
-    const wait = timeout <= Number.MAX_SAFE_INTEGER ? Number(timeout) : Infinity;
-    switch (Atomics.wait(mem, offset, exp, wait)) {
-        case "ok":
-            return 0
-        case "not-equal":
-            return 1
-        case "timed-out":
-            return 2
+    const millis = timeout / 1000000n;
+    const wait = millis <= Number.MAX_SAFE_INTEGER ? Number(millis) : Infinity;
+
+    if (thread_id() === 0) {
+        // Busy-wait loop
+        if (Atomics.load(mem, ptr) != exp) return 1;
+        const start = performance.now();
+        while (Atomics.load(mem, ptr) == exp) {
+            if (performance.now() - start >= wait) return 2;
+        }
+        return 0;
+    } else {
+        // Atomic wait
+        switch (Atomics.wait(mem, offset, exp, wait)) {
+            case "ok":
+                return 0
+            case "not-equal":
+                return 1
+            case "timed-out":
+                return 2
+        }
     }
 }
 
@@ -226,13 +246,14 @@ function memory_atomic_notify(ptr, max_waits) {
     return Atomics.notify(mem, offset, max_waits)
 }
 
-/**
- * @returns {number}
- */
+var thread_id_result = null;
 function thread_id() {
-    const ptr = global.instance.exports.thread_id_counter_ptr.value;
-    const offset = ptr / Uint32Array.BYTES_PER_ELEMENT;
-    return Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
+    if (thread_id_result === null) {
+        const ptr = global.instance.exports.thread_id_counter_ptr.value;
+        const offset = ptr / Uint32Array.BYTES_PER_ELEMENT;
+        thread_id_result = Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
+    };
+    return thread_id_result
 }
 
 /**

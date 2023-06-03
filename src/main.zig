@@ -3,10 +3,8 @@ const builtin = @import("builtin");
 const rc = @import("libs/zigrc.zig");
 const thread_id = @import("id.zig");
 
-pub const thread_safe_allocator = @import("alloc.zig").thread_safe_allocator;
-
 const AtomicU32 = std.atomic.Atomic(u32);
-const ThreadLock = rc.Arc(AtomicU32);
+pub const thread_safe_allocator = @import("alloc.zig").thread_safe_allocator;
 
 comptime {
     if (!builtin.target.isWasm()) {
@@ -23,7 +21,7 @@ comptime {
 // both evented I/O and async I/O, see the respective names in the top level std namespace.
 pub const Thread = struct {
     idx: u32,
-    lock: ThreadLock,
+    lock: *AtomicU32,
 
     pub const SpawnConfig = std.Thread.SpawnConfig;
     pub const Futex = @import("futex.zig");
@@ -45,11 +43,9 @@ pub const Thread = struct {
 
         const Instance = struct {
             fn entryFn(raw_arg: *anyopaque, futex_ptr: *AtomicU32) void {
-                const futex = ThreadLock{ .value = futex_ptr, .alloc = thread_safe_allocator };
                 defer {
-                    futex_ptr.store(1, .Release);
+                    @atomicStore(u32, &futex_ptr.value, 1, .Release);
                     Futex.wake(futex_ptr, 1);
-                    futex.release();
                 }
 
                 // @alignCast() below doesn't support zero-sized-types (ZST)
@@ -67,15 +63,16 @@ pub const Thread = struct {
         args_ptr.* = args;
         errdefer thread_safe_allocator.destroy(args_ptr);
 
-        var futex = try ThreadLock.init(thread_safe_allocator, AtomicU32.init(0));
-        errdefer futex.release();
+        var futex = try thread_safe_allocator.create(AtomicU32);
+        futex.* = AtomicU32.init(0);
+        errdefer thread_safe_allocator.destroy(futex);
 
         const idx = spawn_worker(
             null,
             0,
             Instance.entryFn,
             if (@sizeOf(Args) < 1) undefined else @ptrCast(*anyopaque, args_ptr),
-            futex.retain().value,
+            futex,
         );
         return Thread{ .idx = idx, .lock = futex };
     }
@@ -109,8 +106,16 @@ pub const Thread = struct {
     /// Once called, this consumes the Thread object and invoking any other functions on it is considered undefined behavior.
     pub fn join(self: Thread) void {
         defer self.deinit();
-        while (self.lock.value.load(.Acquire) == 0)
-            Futex.wait(self.lock.value, 0);
+        // print_string("**2");
+        // print_number(@ptrToInt(self.lock.value));
+        // print_number(@ptrToInt(self.lock.alloc.ptr));
+        // print_number(@ptrToInt(self.lock.alloc.vtable));
+        // print_number(65536 * @wasmMemorySize(0));
+        // print_string("***");
+        while (@atomicLoad(u32, &self.lock.value, .Acquire) == 0) {
+            //print_number(self.lock.value.load(.Monotonic));
+            Futex.wait(self.lock, 0);
+        }
     }
 
     /// Yields the current thread potentially allowing other threads to run.
@@ -120,7 +125,7 @@ pub const Thread = struct {
 
     fn deinit(self: Thread) void {
         release_worker(self.idx);
-        self.lock.release();
+        thread_safe_allocator.destroy(self.lock);
     }
 };
 
@@ -140,3 +145,24 @@ extern fn spawn_worker(
     futex_ptr: *AtomicU32,
 ) u32;
 extern fn release_worker(idx: u32) void;
+
+// DEBUG
+inline fn print_string(s: []const u8) void {
+    __print(s.ptr, s.len);
+}
+
+inline fn print_number(n: anytype) void {
+    const T = @TypeOf(n);
+    const info = @typeInfo(T);
+
+    if (info == .Float) {
+        return __print_number(@floatCast(f64, n));
+    } else if (info == .Int) {
+        return __print_number(@intToFloat(f64, n));
+    } else {
+        @compileError("Provided type isn't a number");
+    }
+}
+
+extern fn __print(ptr: [*]const u8, len: usize) void;
+extern fn __print_number(n: f64) void;

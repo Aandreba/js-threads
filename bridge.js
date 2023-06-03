@@ -256,7 +256,7 @@ function memory_atomic_notify(ptr, max_waits) {
 var thread_id_result = null;
 function thread_id() {
     if (thread_id_result === null) {
-        const ptr = global.instance.exports.thread_id_counter_ptr.value;
+        const ptr = (global.instance.exports.thread_id_counter_ptr)();
         const offset = ptr / Uint32Array.BYTES_PER_ELEMENT;
         thread_id_result = Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
     };

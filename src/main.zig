@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const rc = @import("libs/zigrc.zig");
 const thread_id = @import("id.zig");
 
 const AtomicU32 = std.atomic.Atomic(u32);
@@ -9,9 +8,7 @@ pub const thread_safe_allocator = @import("alloc.zig").thread_safe_allocator;
 comptime {
     if (!builtin.target.isWasm()) {
         @compileError("JS threads are only supported on WASM targets");
-    } else if (!rc.atomic_arc) {
-        @compileError("atomic support is not enabled");
-    } else if (!std.Target.wasm.featureSetHasAll(builtin.cpu.features, .{ .bulk_memory, .mutable_globals })) {
+    } else if (!std.Target.wasm.featureSetHasAll(builtin.cpu.features, .{ .atomics, .bulk_memory, .mutable_globals })) {
         @compileError("shared memory is not enabled");
     }
 }
@@ -106,14 +103,7 @@ pub const Thread = struct {
     /// Once called, this consumes the Thread object and invoking any other functions on it is considered undefined behavior.
     pub fn join(self: Thread) void {
         defer self.deinit();
-        // print_string("**2");
-        // print_number(@ptrToInt(self.lock.value));
-        // print_number(@ptrToInt(self.lock.alloc.ptr));
-        // print_number(@ptrToInt(self.lock.alloc.vtable));
-        // print_number(65536 * @wasmMemorySize(0));
-        // print_string("***");
         while (@atomicLoad(u32, &self.lock.value, .Acquire) == 0) {
-            //print_number(self.lock.value.load(.Monotonic));
             Futex.wait(self.lock, 0);
         }
     }
@@ -130,7 +120,47 @@ pub const Thread = struct {
 };
 
 fn callFn(comptime f: anytype, args: anytype) void {
-    @call(.auto, f, args);
+    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
+        .NoReturn => {
+            @call(.auto, f, args);
+        },
+        .Void => {
+            @call(.auto, f, args);
+        },
+        .Int => |info| {
+            if (info.bits != 8) {
+                @compileError(bad_fn_ret);
+            }
+            // workers don't support exit status, ignore value
+            _ = @call(.auto, f, args);
+        },
+        .ErrorUnion => |info| {
+            if (info.payload != void) {
+                @compileError(bad_fn_ret);
+            }
+
+            @call(.auto, f, args) catch |err| {
+                eprint("error: {s}\n", .{@errorName(err)});
+                // if (@errorReturnTrace()) |trace| {
+                //     std.debug.dumpStackTrace(trace.*);
+                // }
+            };
+        },
+        else => {
+            @compileError(bad_fn_ret);
+        },
+    }
+}
+
+// INTERNAL
+fn eprint(comptime fmt: []const u8, args: anytype) void {
+    var str = std.ArrayListUnmanaged(u8).fromOwnedSlice(thread_safe_allocator.alloc(u8, fmt.len) catch @panic("OOM"));
+    defer str.deinit();
+
+    std.fmt.format(str.writer(thread_safe_allocator), fmt, args) catch @panic("OOM");
+    print_error(str.items.ptr, str.items.len);
 }
 
 export fn wasm_thread_entry_point(f: *const fn (*anyopaque, *AtomicU32) void, args: *anyopaque, futex_ptr: *AtomicU32) void {
@@ -145,24 +175,4 @@ extern fn spawn_worker(
     futex_ptr: *AtomicU32,
 ) u32;
 extern fn release_worker(idx: u32) void;
-
-// DEBUG
-inline fn print_string(s: []const u8) void {
-    __print(s.ptr, s.len);
-}
-
-inline fn print_number(n: anytype) void {
-    const T = @TypeOf(n);
-    const info = @typeInfo(T);
-
-    if (info == .Float) {
-        return __print_number(@floatCast(f64, n));
-    } else if (info == .Int) {
-        return __print_number(@intToFloat(f64, n));
-    } else {
-        @compileError("Provided type isn't a number");
-    }
-}
-
-extern fn __print(ptr: [*]const u8, len: usize) void;
-extern fn __print_number(n: f64) void;
+extern fn print_error(ptr: [*]const u8, len: usize) void;

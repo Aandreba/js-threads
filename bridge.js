@@ -41,7 +41,7 @@ self.onmessage = event => {
 };
 `;
 
-const globalEnv = { spawn_worker, release_worker, memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify, thread_id };
+const globalEnv = { spawn_worker, release_worker, print_error, memory_atomic_wait64, memory_atomic_wait32, memory_atomic_notify, thread_id };
 
 /**
  * Variable with the current Wasm context
@@ -261,6 +261,15 @@ function thread_id() {
         thread_id_result = Atomics.add(new Uint32Array(global.memory.buffer), offset, 1);
     };
     return thread_id_result
+}
+
+/**
+ * 
+ * @param {number} ptr 
+ * @param {number} len 
+ */
+function print_error(ptr, len) {
+    console.error(import_zig_string(ptr, len));
 }
 
 /**
